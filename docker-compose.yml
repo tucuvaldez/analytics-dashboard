@@ -1,0 +1,50 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: analytics-postgres
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_USER: admin
+      POSTGRES_PASSWORD: password
+      POSTGRES_DB: analytics
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - analytics-network
+
+  backend:
+    build: ./backend
+    container_name: analytics-backend
+    ports:
+      - "5000:5000"
+    environment:
+      NODE_ENV: development
+      PORT: 5000
+      DATABASE_URL: postgresql://admin:password@postgres:5432/analytics?schema=public
+      JWT_SECRET: dev-secret-change-in-prod
+    depends_on:
+      - postgres
+    networks:
+      - analytics-network
+    volumes:
+      - ./backend:/app
+      - /app/node_modules
+
+  frontend:
+    build: ./frontend
+    container_name: analytics-frontend
+    ports:
+      - "3000:3000"
+    networks:
+      - analytics-network
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+
+volumes:
+  postgres_data:
+
+networks:
+  analytics-network:
+    driver: bridge
