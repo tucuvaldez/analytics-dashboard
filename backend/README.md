@@ -14,10 +14,10 @@ cp .env.example .env          # y cambiá los secretos (ver abajo)
 npm install
 npx prisma migrate dev        # aplica migraciones + genera el cliente Prisma
 npm run seed                  # 1 admin + 2 dashboards con datos de prueba
-npm run dev                   # http://localhost:5000
+npm run dev                   # http://localhost:5001
 ```
 
-Verificación: `curl localhost:5000/health` → `{"status":"Backend OK"}`
+Verificación: `curl localhost:5001/health` → `{"status":"Backend OK"}`
 
 Con Docker completo: `docker compose up --build` (el contenedor del backend ejecuta `prisma migrate deploy` al iniciar). Para sembrar datos: `docker compose exec backend npx tsx prisma/seed.ts`.
 
@@ -75,7 +75,7 @@ Todas las respuestas exitosas son `{ "data": ... }` (las listas agregan `"meta":
 ## Ejemplos curl
 
 ```bash
-API=http://localhost:5000
+API=http://localhost:5001
 
 # --- Auth ---
 curl -X POST $API/auth/register -H 'Content-Type: application/json' \
