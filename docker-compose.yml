@@ -22,7 +22,10 @@ services:
       NODE_ENV: development
       PORT: 5000
       DATABASE_URL: postgresql://admin:password@postgres:5432/analytics?schema=public
-      JWT_SECRET: dev-secret-change-in-prod
+      # DEV ONLY - override with real secrets (see backend/.env.example)
+      JWT_SECRET: ${JWT_SECRET:-dev-only-access-secret-change-me-0123456789}
+      JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET:-dev-only-refresh-secret-change-me-012345678}
+      CORS_ORIGIN: http://localhost:3000,http://localhost:5173
     depends_on:
       - postgres
     networks:

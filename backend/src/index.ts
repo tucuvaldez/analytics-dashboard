@@ -1,21 +1,20 @@
-import express from 'express';
-import cors from 'cors';
-import helmet from 'helmet';
-import dotenv from 'dotenv';
+import { app } from './app.js';
+import { env } from './config/env.js';
+import { prisma } from './lib/prisma.js';
 
-dotenv.config();
-
-const app = express();
-const PORT = process.env.PORT || 5000;
-
-app.use(helmet());
-app.use(cors());
-app.use(express.json());
-
-app.get('/health', (req, res) => {
-  res.json({ status: 'Backend OK' });
+const server = app.listen(env.PORT, () => {
+  console.log(`🚀 Backend running on port ${env.PORT} (${env.NODE_ENV})`);
 });
 
-app.listen(PORT, () => {
-  console.log(`🚀 Backend running on port ${PORT}`);
-});
+const shutdown = (signal: string) => {
+  console.log(`${signal} received, shutting down...`);
+  server.close(async () => {
+    await prisma.$disconnect();
+    process.exit(0);
+  });
+  // Force-exit if connections hang.
+  setTimeout(() => process.exit(1), 10_000).unref();
+};
+
+process.on('SIGINT', () => shutdown('SIGINT'));
+process.on('SIGTERM', () => shutdown('SIGTERM'));

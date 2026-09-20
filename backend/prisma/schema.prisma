@@ -1,0 +1,86 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  USER
+  ADMIN
+}
+
+model User {
+  id        String   @id @default(uuid())
+  email     String   @unique
+  password  String // bcrypt hash, never returned by the API
+  role      Role     @default(USER)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  dashboards    Dashboard[]
+  reports       Report[]
+  refreshTokens RefreshToken[]
+
+  @@map("users")
+}
+
+model Dashboard {
+  id          String   @id @default(uuid())
+  userId      String
+  name        String
+  description String?
+  isPublic    Boolean  @default(false)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  user       User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  dataPoints DataPoint[]
+
+  @@index([userId])
+  @@map("dashboards")
+}
+
+model DataPoint {
+  id          String   @id @default(uuid())
+  dashboardId String
+  label       String
+  value       Float
+  timestamp   DateTime @default(now())
+
+  dashboard Dashboard @relation(fields: [dashboardId], references: [id], onDelete: Cascade)
+
+  @@index([dashboardId, timestamp])
+  @@map("data_points")
+}
+
+model Report {
+  id          String   @id @default(uuid())
+  userId      String
+  name        String
+  generatedAt DateTime @default(now())
+  data        Json
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, generatedAt])
+  @@map("reports")
+}
+
+// Refresh tokens are stored hashed (sha256) so a DB leak cannot be replayed.
+// Each token is single-use: /auth/refresh rotates it.
+model RefreshToken {
+  id        String    @id @default(uuid())
+  userId    String
+  tokenHash String    @unique
+  expiresAt DateTime
+  revokedAt DateTime?
+  createdAt DateTime  @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("refresh_tokens")
+}
