@@ -1,5 +1,6 @@
 import express from 'express';
 import cors from 'cors';
+import cookieParser from 'cookie-parser';
 import helmet from 'helmet';
 import { env } from './config/env.js';
 import { AppError } from './errors/AppError.js';
@@ -24,11 +25,14 @@ app.use(
       cb(new AppError(403, 'CORS_ERROR', 'Origin not allowed by CORS policy'));
     },
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Authorization'],
+    // Needed so the browser sends/accepts the httpOnly refresh-token cookie cross-origin.
+    credentials: true,
+    allowedHeaders: ['Content-Type', 'Authorization', 'X-Token-Delivery'],
     maxAge: 600,
   }),
 );
 app.use(express.json({ limit: '1mb' }));
+app.use(cookieParser());
 
 // Health check is registered before the rate limiter so orchestrators can poll freely.
 app.get('/health', (_req, res) => {

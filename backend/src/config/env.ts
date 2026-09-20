@@ -12,6 +12,9 @@ const schema = z.object({
   JWT_ACCESS_EXPIRES_IN: z.string().default('15m'),
   JWT_REFRESH_EXPIRES_IN_DAYS: z.coerce.number().int().positive().default(7),
   BCRYPT_ROUNDS: z.coerce.number().int().min(4).max(15).default(12),
+  // 'strict' works when frontend and API share a site (e.g. localhost:5173 -> localhost:5001).
+  // Use 'none' (requires HTTPS) only if they live on different registrable domains.
+  COOKIE_SAMESITE: z.enum(['strict', 'lax', 'none']).default('strict'),
   // Comma-separated list of allowed origins
   CORS_ORIGIN: z.string().default('http://localhost:3000,http://localhost:5173'),
   RATE_LIMIT_WINDOW_MS: z.coerce.number().int().positive().default(15 * 60 * 1000),

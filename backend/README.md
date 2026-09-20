@@ -31,6 +31,7 @@ Con Docker completo: `docker compose up --build` (el contenedor del backend ejec
 | `JWT_ACCESS_EXPIRES_IN` | Vida del access token | `15m` |
 | `JWT_REFRESH_EXPIRES_IN_DAYS` | Vida del refresh token | `7` |
 | `BCRYPT_ROUNDS` | Costo de bcrypt | `12` |
+| `COOKIE_SAMESITE` | SameSite de la cookie del refresh token: `strict`, `lax` o `none` (dominios distintos, requiere HTTPS) | `strict` |
 | `CORS_ORIGIN` | Orígenes permitidos, separados por coma | `http://localhost:3000,http://localhost:5173` |
 | `RATE_LIMIT_MAX` / `AUTH_RATE_LIMIT_MAX` | Requests por ventana (general / auth) | `100` / `10` |
 | `RATE_LIMIT_WINDOW_MS` | Ventana de rate limit | `900000` (15 min) |
@@ -58,7 +59,7 @@ Todas las respuestas exitosas son `{ "data": ... }` (las listas agregan `"meta":
 |---|---|---|---|
 | POST | `/auth/register` | — | Crear usuario (devuelve tokens) |
 | POST | `/auth/login` | — | Login |
-| POST | `/auth/refresh` | — | Rota el refresh token y devuelve un nuevo par |
+| POST | `/auth/refresh` | — | Rota el refresh token (cookie o body) y devuelve un nuevo par |
 | POST | `/auth/logout` | — | Revoca un refresh token (204) |
 | GET | `/auth/me` | ✔ | Usuario actual |
 | GET | `/dashboards?scope=mine\|public&page&limit` | ✔ | Listar dashboards |
@@ -132,6 +133,18 @@ curl $API/reports/<report-id> -H "Authorization: Bearer $TOKEN"
 
 El campo `data` de un reporte contiene, por dashboard: `dataPoints`, `sum`, `avg`, `min`, `max`, más un `summary` global y el `period` consultado.
 
+## Sesión en navegadores (cookie httpOnly)
+
+Además del body JSON, el refresh token viaja en la cookie **`refresh_token`** (`HttpOnly`, `SameSite` configurable, `Path=/auth`, `Secure` en producción), así que JavaScript nunca lo puede leer. Los navegadores mandan el header `X-Token-Delivery: cookie` y `credentials: 'include'`: en ese caso el backend **no** incluye el `refreshToken` en el body. `/auth/refresh` y `/auth/logout` leen la cookie (o el body, para curl/mobile) y `logout` la borra.
+
+```bash
+# Con cookie jar (simula un navegador)
+curl -c jar.txt -X POST $API/auth/login -H 'Content-Type: application/json' -H 'X-Token-Delivery: cookie' \
+  -d '{"email":"admin@example.com","password":"Admin1234!"}'
+curl -b jar.txt -c jar.txt -X POST $API/auth/refresh -H 'X-Token-Delivery: cookie'
+curl -b jar.txt -c jar.txt -X POST $API/auth/logout
+```
+
 ## Errores
 
 Todos los errores tienen el mismo formato y **nunca exponen detalles internos** (stack traces, SQL, etc.; los errores inesperados se loguean solo en el servidor):
@@ -157,7 +170,7 @@ Todos los errores tienen el mismo formato y **nunca exponen detalles internos** 
 - **Passwords**: bcryptjs (12 rounds), mínimo 8 caracteres con mayúscula, minúscula y número; nunca se devuelven en la API. El login responde igual si el email no existe o la contraseña es incorrecta y compara contra un hash dummy para igualar tiempos.
 - **JWT**: access token corto (15 min) + refresh token (7 días) con secretos distintos en `.env`. Los refresh tokens se guardan **hasheados (sha256)** y **rotan** en cada uso; si se reutiliza uno ya usado se revocan todas las sesiones del usuario (detección de robo).
 - **Helmet** para headers de seguridad, `x-powered-by` deshabilitado, **CORS** con lista blanca de orígenes, body limitado a 1 MB.
-- **Rate limiting**: 100 req/15 min global y 10 req/15 min en `/auth/register|login|refresh` (configurable). `/health` queda fuera del límite.
+- **Rate limiting**: 100 req/15 min global y 10 req/15 min en `/auth/register|login` (configurable). `/health` queda fuera del límite.
 - **Autorización**: cada recurso se filtra por dueño; los reportes solo agregan datos propios.
 
 ## Estructura

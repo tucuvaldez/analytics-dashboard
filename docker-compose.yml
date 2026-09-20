@@ -20,7 +20,7 @@ services:
       - "5001:5000"
     environment:
       NODE_ENV: development
-      PORT: 5001
+      PORT: 5000
       DATABASE_URL: postgresql://admin:password@postgres:5432/analytics?schema=public
       # DEV ONLY - override with real secrets (see backend/.env.example)
       JWT_SECRET: ${JWT_SECRET:-dev-only-access-secret-change-me-0123456789}
@@ -35,7 +35,11 @@ services:
       - /app/node_modules
 
   frontend:
-    build: ./frontend
+    build:
+      context: ./frontend
+      args:
+        # Baked into the bundle at build time; the browser calls the API through the host port.
+        VITE_API_URL: http://localhost:5001
     container_name: analytics-frontend
     ports:
       - "3000:3000"

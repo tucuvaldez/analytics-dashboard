@@ -1,4 +1,4 @@
-import { Router } from 'express';
+import { Router, type Request, type Response } from 'express';
 import bcrypt from 'bcryptjs';
 import { z } from 'zod';
 import { env } from '../config/env.js';
@@ -30,7 +30,43 @@ const password = z
 const registerBody = z.object({ email, password });
 // On login we deliberately don't enforce password *format*, only presence.
 const loginBody = z.object({ email, password: z.string().min(1, 'Password is required').max(72) });
-const tokenBody = z.object({ refreshToken: z.string().min(1, 'refreshToken is required') });
+// The refresh token normally travels in an httpOnly cookie; the body is a fallback for curl/mobile clients.
+const tokenBody = z.object({ refreshToken: z.string().min(1).optional() });
+
+const REFRESH_COOKIE = 'refresh_token';
+const cookieOptions = () =>
+  ({
+    httpOnly: true, // not readable from JS => XSS cannot steal it
+    secure: env.isProduction || env.COOKIE_SAMESITE === 'none',
+    sameSite: env.COOKIE_SAMESITE,
+    path: '/auth', // only sent to /auth/* endpoints
+  }) as const;
+
+const readRefreshToken = (req: Request): string => {
+  const token = (req.body as z.infer<typeof tokenBody>).refreshToken ?? req.cookies?.[REFRESH_COOKIE];
+  if (typeof token !== 'string' || !token) throw new AuthenticationError('Refresh token required');
+  return token;
+};
+
+/**
+ * Sets the refresh cookie and sends the session. Browser clients send
+ * `X-Token-Delivery: cookie` and never see the refresh token in the body.
+ */
+function sendSession(
+  req: Request,
+  res: Response,
+  status: number,
+  tokens: Awaited<ReturnType<typeof issueTokens>>,
+  user?: ReturnType<typeof publicUser>,
+) {
+  res.cookie(REFRESH_COOKIE, tokens.refreshToken, {
+    ...cookieOptions(),
+    maxAge: env.JWT_REFRESH_EXPIRES_IN_DAYS * 24 * 60 * 60 * 1000,
+  });
+  const { refreshToken, ...rest } = tokens;
+  const cookieOnly = req.get('x-token-delivery') === 'cookie';
+  res.status(status).json({ data: { ...(user && { user }), ...(cookieOnly ? rest : { ...rest, refreshToken }) } });
+}
 
 // Used to keep login timing similar whether or not the email exists.
 const DUMMY_HASH = bcrypt.hashSync('dummy-password-for-timing', env.BCRYPT_ROUNDS);
@@ -65,7 +101,7 @@ router.post(
       data: { email, password: await bcrypt.hash(password, env.BCRYPT_ROUNDS) },
     });
 
-    res.status(201).json({ data: { user: publicUser(user), ...(await issueTokens(user)) } });
+    sendSession(req, res, 201, await issueTokens(user), publicUser(user));
   }),
 );
 
@@ -81,16 +117,17 @@ router.post(
     // Same message for "unknown email" and "wrong password" (no user enumeration).
     if (!user || !valid) throw new AuthenticationError('Invalid email or password');
 
-    res.json({ data: { user: publicUser(user), ...(await issueTokens(user)) } });
+    sendSession(req, res, 200, await issueTokens(user), publicUser(user));
   }),
 );
 
+// No authLimiter here: a refresh needs a valid signed token (nothing to brute-force) and the
+// browser app calls it on every page load, so it only falls under the global limiter.
 router.post(
   '/refresh',
-  authLimiter,
   validate({ body: tokenBody }),
   asyncHandler(async (req, res) => {
-    const { refreshToken } = req.body as z.infer<typeof tokenBody>;
+    const refreshToken = readRefreshToken(req);
     const payload = verifyRefreshToken(refreshToken);
     const stored = await prisma.refreshToken.findUnique({ where: { tokenHash: hashToken(refreshToken) } });
 
@@ -116,7 +153,7 @@ router.post(
     });
     if (revoked.count === 0) throw new AuthenticationError('Refresh token already used');
 
-    res.json({ data: await issueTokens(user) });
+    sendSession(req, res, 200, await issueTokens(user));
   }),
 );
 
@@ -124,11 +161,14 @@ router.post(
   '/logout',
   validate({ body: tokenBody }),
   asyncHandler(async (req, res) => {
-    const { refreshToken } = req.body as z.infer<typeof tokenBody>;
-    await prisma.refreshToken.updateMany({
-      where: { tokenHash: hashToken(refreshToken), revokedAt: null },
-      data: { revokedAt: new Date() },
-    });
+    const refreshToken = (req.body as z.infer<typeof tokenBody>).refreshToken ?? req.cookies?.[REFRESH_COOKIE];
+    if (typeof refreshToken === 'string' && refreshToken) {
+      await prisma.refreshToken.updateMany({
+        where: { tokenHash: hashToken(refreshToken), revokedAt: null },
+        data: { revokedAt: new Date() },
+      });
+    }
+    res.clearCookie(REFRESH_COOKIE, cookieOptions());
     res.status(204).send();
   }),
 );
